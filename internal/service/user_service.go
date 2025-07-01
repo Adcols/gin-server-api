@@ -1,149 +1,178 @@
-package services
+package service
 
 import (
-	"errors"
-
-	models "github.com/Adcols/gin-server-api/internal/model"
-	repositories "github.com/Adcols/gin-server-api/internal/repository"
+	"github.com/Adcols/gin-server-api/internal/model/entity"
+	"github.com/Adcols/gin-server-api/internal/model/request"
+	"github.com/Adcols/gin-server-api/internal/model/response"
+	"github.com/Adcols/gin-server-api/internal/repo"
+	"github.com/Adcols/gin-server-api/pkg/errors"
 	"github.com/Adcols/gin-server-api/pkg/utils"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 // UserService 用户服务
 type UserService struct {
-	userRepo *repositories.UserRepository
-}
-
-// NewUserService 创建用户服务
-func NewUserService() *UserService {
-	return &UserService{
-		userRepo: repositories.NewUserRepository(),
-	}
+	UserRepo *repo.UserRepo
 }
 
 // Register 用户注册
-func (s *UserService) Register(user *models.User) error {
-	// 检查用户名是否已存在
-	exists, err := s.userRepo.IsUsernameExists(user.Username)
+func (s *UserService) Register(req *request.RegisterRequest) (*response.UserResponse, error) {
+	// 创建用户模型
+	user := &entity.User{
+		Username: req.Username,
+		Password: req.Password,
+		Nickname: req.Nickname,
+		Email:    req.Email,
+		Phone:    &req.Phone,
+		Avatar:   req.Avatar,
+		Gender:   uint32(req.Gender),
+	}
+
+	// 创建用户（包含业务逻辑验证）
+	err := s.UserRepo.Create(user)
 	if err != nil {
-		return err
-	}
-	if exists {
-		return errors.New("用户名已存在")
+		return nil, err
 	}
 
-	// 检查邮箱是否已存在
-	if user.Email != "" {
-		exists, err := s.userRepo.IsEmailExists(user.Email)
-		if err != nil {
-			return err
-		}
-		if exists {
-			return errors.New("邮箱已存在")
-		}
+	// 转换为响应对象
+	resp := &response.UserResponse{
+		ID:       uint(user.ID),
+		Username: user.Username,
+		Nickname: user.Nickname,
+		Email:    user.Email,
+		Phone:    *user.Phone,
+		Avatar:   user.Avatar,
+		Gender:   int8(user.Gender),
+		Status:   int8(user.Status),
+		// CreatedAt: *user.CreatedAt,
+		// UpdatedAt: *user.UpdatedAt,
 	}
 
-	// 检查手机号是否已存在
-	if user.Phone != "" {
-		exists, err := s.userRepo.IsPhoneExists(user.Phone)
-		if err != nil {
-			return err
-		}
-		if exists {
-			return errors.New("手机号已存在")
-		}
-	}
-
-	// 加密密码
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-	user.Password = string(hashedPassword)
-
-	// 创建用户
-	return s.userRepo.Create(user)
+	return resp, nil
 }
 
 // Login 用户登录
-func (s *UserService) Login(username, password string) (string, *models.User, error) {
+func (s *UserService) Login(req *request.LoginRequest) (*response.LoginResponse, error) {
 	// 查询用户
-	user, err := s.userRepo.FindByUsername(username)
+	user, err := s.UserRepo.FindByUsername(req.Username)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", nil, errors.New("用户不存在")
-		}
-		return "", nil, err
-	}
-
-	// 检查用户状态
-	if user.Status == 0 {
-		return "", nil, errors.New("用户已被禁用")
-	}
-
-	// 验证密码
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
-	if err != nil {
-		return "", nil, errors.New("密码错误")
-	}
-
-	// 生成JWT令牌
-	token, err := utils.GenerateToken(user.ID, user.Username)
-	if err != nil {
-		return "", nil, err
-	}
-
-	return token, user, nil
-}
-
-// GetUserByID 根据ID获取用户
-func (s *UserService) GetUserByID(id uint) (*models.User, error) {
-	user, err := s.userRepo.FindByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("用户不存在")
+		if _, ok := err.(*errors.Error); ok && err.Error() == errors.ErrNotFound.Error() {
+			return nil, errors.New(errors.UserNotFound, nil)
 		}
 		return nil, err
 	}
 
-	return user, nil
+	// 检查用户状态
+	if user.Status == 0 {
+		return nil, errors.New(errors.UserDisabled, nil)
+	}
+
+	// 验证密码
+	err = s.UserRepo.VerifyPassword(user, req.Password)
+	if err != nil {
+		return nil, errors.New(errors.PasswordIncorrect, nil)
+	}
+
+	// 生成JWT令牌
+	token, err := utils.GenerateToken(uint(user.ID), user.Username)
+	if err != nil {
+		return nil, errors.New(errors.InternalServerError, err)
+	}
+
+	// 转换为响应对象
+	resp := &response.LoginResponse{
+		Token: token,
+		User: response.UserResponse{
+			ID:        uint(user.ID),
+			Username:  user.Username,
+			Nickname:  user.Nickname,
+			Email:     user.Email,
+			Phone:     *user.Phone,
+			Avatar:    user.Avatar,
+			Gender:    int8(user.Gender),
+			Status:    int8(user.Status),
+			CreatedAt: *user.CreatedAt,
+			UpdatedAt: *user.UpdatedAt,
+		},
+	}
+
+	return resp, nil
+}
+
+// GetUserByID 根据ID获取用户
+func (s *UserService) GetUserByID(id uint32) (*response.UserResponse, error) {
+	// 获取用户信息
+	user, err := s.UserRepo.FindByID(id)
+	if err != nil {
+		if _, ok := err.(*errors.Error); ok && err.Error() == errors.ErrNotFound.Error() {
+			return nil, errors.New(errors.UserNotFound, nil)
+		}
+		return nil, errors.New(errors.InternalServerError, err)
+	}
+
+	// 转换为响应对象
+	resp := &response.UserResponse{
+		ID:        uint(user.ID),
+		Username:  user.Username,
+		Nickname:  user.Nickname,
+		Email:     user.Email,
+		Phone:     *user.Phone,
+		Avatar:    user.Avatar,
+		Gender:    int8(user.Gender),
+		Status:    int8(user.Status),
+		CreatedAt: *user.CreatedAt,
+		UpdatedAt: *user.UpdatedAt,
+	}
+
+	return resp, nil
 }
 
 // UpdateUser 更新用户信息
-func (s *UserService) UpdateUser(user *models.User) error {
-	// 更新用户信息，不更新密码
-	return s.userRepo.Update(user)
+func (s *UserService) UpdateUser(id uint32, req *request.UpdateUserRequest) (*response.UserResponse, error) {
+	// 查询用户
+	user, err := s.UserRepo.FindByID(id)
+	if err != nil {
+		if _, ok := err.(*errors.Error); ok && err.Error() == errors.ErrNotFound.Error() {
+			return nil, errors.New(errors.UserNotFound, nil)
+		}
+		return nil, errors.New(errors.InternalServerError, err)
+	}
+
+	// 更新用户信息
+	user.Nickname = req.Nickname
+	user.Email = req.Email
+	user.Phone = &req.Phone
+	user.Avatar = req.Avatar
+	user.Gender = uint32(req.Gender)
+
+	// 保存更新（包含业务逻辑验证）
+	err = s.UserRepo.Update(user)
+	if err != nil {
+		return nil, errors.New(errors.InternalServerError, err)
+	}
+
+	// 转换为响应对象
+	resp := &response.UserResponse{
+		ID:        uint(user.ID),
+		Username:  user.Username,
+		Nickname:  user.Nickname,
+		Email:     user.Email,
+		Phone:     *user.Phone,
+		Avatar:    user.Avatar,
+		Gender:    int8(user.Gender),
+		Status:    int8(user.Status),
+		CreatedAt: *user.CreatedAt,
+		UpdatedAt: *user.UpdatedAt,
+	}
+
+	return resp, nil
 }
 
 // UpdatePassword 更新用户密码
-func (s *UserService) UpdatePassword(id uint, oldPassword, newPassword string) error {
-	// 查询用户
-	user, err := s.userRepo.FindByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("用户不存在")
-		}
-		return err
-	}
-
-	// 验证旧密码
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword))
-	if err != nil {
-		return errors.New("旧密码错误")
-	}
-
-	// 加密新密码
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	// 更新密码
-	return s.userRepo.UpdatePassword(id, string(hashedPassword))
+func (s *UserService) UpdatePassword(id uint32, req *request.UpdatePasswordRequest) error {
+	return s.UserRepo.UpdatePassword(id, req.OldPassword, req.NewPassword)
 }
 
 // DeleteUser 删除用户
-func (s *UserService) DeleteUser(id uint) error {
-	return s.userRepo.Delete(id)
+func (s *UserService) DeleteUser(id uint32) error {
+	return s.UserRepo.Delete(id)
 }

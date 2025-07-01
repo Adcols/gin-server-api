@@ -34,24 +34,24 @@ func SetupRouter() *gin.Engine {
 	api := r.Group("/api/v1")
 
 	// 用户控制器
-	userController := controllers.NewUserController()
+	userApi := controllers.NewUserApi()
 
 	// 用户路由
 	userRoutes := api.Group("/users")
 	{
 		// 公开路由
-		userRoutes.POST("/register", userController.Register)
-		userRoutes.POST("/login", userController.Login)
+		userRoutes.POST("/register", userApi.Register)
+		userRoutes.POST("/login", userApi.Login)
 
 		// 需要认证的路由
 		userAuthRoutes := userRoutes.Group("/")
 		userAuthRoutes.Use(middleware.JWTAuth())
 		{
-			userAuthRoutes.GET("/info", userController.GetUserInfo)
-			userAuthRoutes.PUT("/info", userController.UpdateUserInfo)
-			userAuthRoutes.PUT("/password", userController.UpdatePassword)
-			userAuthRoutes.GET("/:id", userController.GetUserByID)
-			userAuthRoutes.DELETE("/:id", userController.DeleteUser)
+			userAuthRoutes.GET("/info", userApi.GetUserInfo)
+			userAuthRoutes.PUT("/info", userApi.UpdateUserInfo)
+			userAuthRoutes.PUT("/password", userApi.UpdatePassword)
+			userAuthRoutes.GET("/:id", userApi.GetUserByID)
+			userAuthRoutes.DELETE("/:id", userApi.DeleteUser)
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime/debug"
 
+	"github.com/Adcols/gin-server-api/pkg/errors"
 	"github.com/Adcols/gin-server-api/pkg/logger"
 	"github.com/Adcols/gin-server-api/pkg/response"
 	"github.com/gin-gonic/gin"
@@ -21,7 +22,7 @@ func Recovery() gin.HandlerFunc {
 				logger.Error("[Recovery] panic recovered: %v\n%s", err, stackTrace)
 
 				// 返回服务器错误响应
-				response.ServerError(c, fmt.Errorf("%v", err))
+				response.Error(c, errors.NewWithMessage(errors.InternalServerError, "服务器内部错误", fmt.Errorf("%v", err)))
 				c.Abort()
 			}
 		}()
