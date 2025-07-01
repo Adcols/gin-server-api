@@ -17,6 +17,7 @@ func SetupRouter() *gin.Engine {
 
 	// 使用中间件
 	r.Use(middleware.Cors())
+	r.Use(middleware.Logger())
 	r.Use(middleware.Recovery())
 
 	// 健康检查

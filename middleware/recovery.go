@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"fmt"
-	"log/slog"
 	"runtime/debug"
 
+	"github.com/Adcols/gin-server-api/pkg/logger"
 	"github.com/Adcols/gin-server-api/pkg/response"
 	"github.com/gin-gonic/gin"
 )
@@ -18,7 +18,7 @@ func Recovery() gin.HandlerFunc {
 				stackTrace := string(debug.Stack())
 
 				// 记录错误日志
-				slog.Error(fmt.Sprintf("[Recovery] panic recovered: %v\n%s", err, stackTrace))
+				logger.Error("[Recovery] panic recovered: %v\n%s", err, stackTrace)
 
 				// 返回服务器错误响应
 				response.ServerError(c, fmt.Errorf("%v", err))
